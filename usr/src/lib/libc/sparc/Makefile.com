@@ -176,7 +176,9 @@ COMSYSOBJS64=			\
 	lseek64.o		\
 	mmap64.o		\
 	pread64.o		\
+	preadv64.o		\
 	pwrite64.o		\
+	pwritev64.o		\
 	setrlimit64.o		\
 	statvfs64.o
 
@@ -271,6 +273,7 @@ COMSYSOBJS=			\
 	pipe2.o			\
 	pollsys.o		\
 	pread.o			\
+	preadv.o		\
 	priocntlset.o		\
 	processor_bind.o	\
 	processor_info.o	\
@@ -278,6 +281,7 @@ COMSYSOBJS=			\
 	putmsg.o		\
 	putpmsg.o		\
 	pwrite.o		\
+	pwritev.o		\
 	read.o			\
 	readv.o			\
 	resolvepath.o		\

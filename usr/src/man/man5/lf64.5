@@ -3,7 +3,8 @@
 .\" The contents of this file are subject to the terms of the Common Development and Distribution License (the "License").  You may not use this file except in compliance with the License.
 .\" You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE or http://www.opensolaris.org/os/licensing.  See the License for the specific language governing permissions and limitations under the License.
 .\" When distributing Covered Code, include this CDDL HEADER in each file and include the License file at usr/src/OPENSOLARIS.LICENSE.  If applicable, add the following below this CDDL HEADER, with the fields enclosed by brackets "[]" replaced with your own identifying information: Portions Copyright [yyyy] [name of copyright owner]
-.TH LF64 5 "Jul 14, 2008"
+.\" Copyright (c) 2014, Joyent, Inc.  All rights reserved.
+.TH LF64 5 "Jun 19, 2014"
 .SH NAME
 lf64 \- transitional interfaces for 64-bit file offsets
 .SH DESCRIPTION
@@ -397,6 +398,8 @@ int \fBlockf\fR(..., \fBoff_t\fR);	int \fBlockf64\fR(..., \fBoff64_t\fR);
 int \fBftruncate\fR(..., \fBoff_t\fR);	int \fBftruncate64\fR..., \fBoff64_t\fR);
 ssize_t \fBpread\fR(..., \fBoff_t\fR);	ssize_t \fBpread64\fR..., \fBoff64_t\fR);
 ssize_t \fBpwrite\fR(..., \fBoff_t\fR);	ssize_t \fBpwrite64\fR(..., \fBoff64_t\fR);
+ssize_t \fBpreadv\fR(..., \fBoff_t\fR);	ssize_t \fBpreadv64\fR..., \fBoff64_t\fR);
+ssize_t \fBpwritev\fR(..., \fBoff_t\fR);	ssize_t \fBpwritev64\fR(..., \fBoff64_t\fR);
 int \fBtruncate\fR(..., \fBoff_t\fR);	int \fBtruncate64\fR(..., \fBoff64_t\fR);
 .TE
 
