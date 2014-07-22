@@ -188,6 +188,7 @@ typedef struct fwaiter {
 	struct fwaiter	*fw_next;	/* hash queue */
 	struct fwaiter	*fw_prev;	/* hash queue */
 	volatile int	fw_woken;
+	uint32_t	fw_bitmask;	/* bitmask for waiting and waking */
 } fwaiter_t;
 
 #define	MEMID_COPY(s, d) \
@@ -248,14 +249,19 @@ futex_hashout(fwaiter_t *fwp)
  * signal, or the timeout expires.
  */
 static int
-futex_wait(memid_t *memid, caddr_t addr, int val, timespec_t *timeout)
+futex_wait(memid_t *memid, caddr_t addr, int val, timespec_t *timeout,
+    uint32_t bitmask)
 {
 	int err, ret;
 	int32_t curval;
 	fwaiter_t fw;
 	int index;
 
+	if (bitmask == 0) {
+		return (set_errno(EINVAL));
+	}
 	fw.fw_woken = 0;
+	fw.fw_bitmask = bitmask;
 	MEMID_COPY(memid, &fw.fw_memid);
 	cv_init(&fw.fw_cv, NULL, CV_DEFAULT, NULL);
 
@@ -267,7 +273,7 @@ futex_wait(memid_t *memid, caddr_t addr, int val, timespec_t *timeout)
 		goto out;
 	}
 	if (curval != val) {
-		err = set_errno(EWOULDBLOCK);
+		err = set_errno(EWOULDBLOCK); /* defined to EAGAIN */
 		goto out;
 	}
 
@@ -300,19 +306,23 @@ out:
  * Wake up to wake_threads threads that are blocked on the futex at memid.
  */
 static int
-futex_wake(memid_t *memid, int wake_threads)
+futex_wake(memid_t *memid, int wake_threads, uint32_t bitmask)
 {
 	fwaiter_t *fwp, *next;
 	int index;
 	int ret = 0;
 
+	if (bitmask == 0) {
+		return (set_errno(EINVAL));
+	}
 	index = HASH_FUNC(memid);
 
 	mutex_enter(&futex_hash_lock[index]);
 
 	for (fwp = futex_hash[index]; fwp && ret < wake_threads; fwp = next) {
 		next = fwp->fw_next;
-		if (MEMID_EQUAL(&fwp->fw_memid, memid)) {
+		if (MEMID_EQUAL(&fwp->fw_memid, memid) &&
+		    (fwp->fw_bitmask & bitmask) != 0) {
 			futex_hashout(fwp);
 			fwp->fw_woken = 1;
 			cv_signal(&fwp->fw_cv);
@@ -556,10 +566,11 @@ out:
 
 /*
  * Copy in the relative timeout provided by the application and convert it
- * to an absolute timeout.
+ * to an absolute timeout, unless already given an absolute timeout, as
+ * indicated by the last input.
  */
 static int
-get_timeout(void *lx_timeout, timestruc_t *timeout)
+get_timeout(void *lx_timeout, timestruc_t *timeout, int given_abs_timeout)
 {
 	timestruc_t now;
 
@@ -576,12 +587,15 @@ get_timeout(void *lx_timeout, timestruc_t *timeout)
 		timeout->tv_nsec = timeout32.tv_nsec;
 	}
 #endif
-	gethrestime(&now);
 
 	if (itimerspecfix(timeout))
 		return (EINVAL);
 
-	timespecadd(timeout, &now);
+	if (!given_abs_timeout) {
+		gethrestime(&now);
+		timespecadd(timeout, &now);
+	}
+
 	return (0);
 }
 
@@ -598,6 +612,7 @@ lx_futex(uintptr_t addr, int op, int val, uintptr_t lx_timeout,
 	int cmd = op & FUTEX_CMD_MASK;
 	int private = op & FUTEX_PRIVATE_FLAG;
 	char dmsg[32];
+	uint32_t bitmask = (uint32_t)(val3 & FUTEX_BITSET_MATCH_ANY);
 
 	/* must be aligned on int boundary */
 	if (addr & 0x3)
@@ -622,8 +637,6 @@ lx_futex(uintptr_t addr, int op, int val, uintptr_t lx_timeout,
 	case FUTEX_LOCK_PI:
 	case FUTEX_UNLOCK_PI:
 	case FUTEX_TRYLOCK_PI:
-	case FUTEX_WAIT_BITSET:
-	case FUTEX_WAKE_BITSET:
 	case FUTEX_WAIT_REQUEUE_PI:
 	case FUTEX_CMP_REQUEUE_PI:
 		/*
@@ -638,8 +651,16 @@ lx_futex(uintptr_t addr, int op, int val, uintptr_t lx_timeout,
 	}
 
 	/* Copy in the timeout structure from userspace. */
-	if (cmd == FUTEX_WAIT && lx_timeout != NULL) {
-		rval = get_timeout((timespec_t *)lx_timeout, &timeout);
+	if ((cmd & (FUTEX_WAIT | FUTEX_WAIT_BITSET)) && lx_timeout != NULL) {
+		/*
+		 * In a sane world, FUTEX_WAIT_BITSET with a bitset of all 1's
+		 * would be semantically equivalent to FUTEX_WAIT. Instead,
+		 * FUTEX_WAIT_BITSET is set up to use an absolute timespec
+		 * rather than a relative one. Thus the need to pass in a flag
+		 * here.
+		 */
+		rval = get_timeout((timespec_t *)lx_timeout, &timeout,
+		    cmd & FUTEX_ABS_TIMEOUT);
 		if (rval != 0)
 			return (set_errno(rval));
 		tptr = &timeout;
@@ -690,11 +711,17 @@ lx_futex(uintptr_t addr, int op, int val, uintptr_t lx_timeout,
 
 	switch (cmd) {
 	case FUTEX_WAIT:
-		rval = futex_wait(&memid, (void *)addr, val, tptr);
+		bitmask = FUTEX_BITSET_MATCH_ANY;
+	/* fall through */
+	case FUTEX_WAIT_BITSET:
+		rval = futex_wait(&memid, (void *)addr, val, tptr, bitmask);
 		break;
 
 	case FUTEX_WAKE:
-		rval = futex_wake(&memid, val);
+		bitmask = FUTEX_BITSET_MATCH_ANY;
+	/* fall through */
+	case FUTEX_WAKE_BITSET:
+		rval = futex_wake(&memid, val, bitmask);
 		break;
 
 	case FUTEX_WAKE_OP:

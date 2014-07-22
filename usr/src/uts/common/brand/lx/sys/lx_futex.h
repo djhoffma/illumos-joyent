@@ -94,6 +94,19 @@ extern "C" {
 				((((x) << 8) >> 20)))
 #define	FUTEX_OP_CMPARG(x)	(((x) << 20) >> 20)
 
+
+/*
+ * Futex bitmasks for FUTEX_WAIT_BITSET and FUTEX_WAKE_BITSET
+ */
+#define	FUTEX_BITSET_MATCH_ANY	(0xffffffff)
+/*
+ * FUTEX_WAIT_BITSET takes an absolute timeout rather than a relative timeout,
+ * which makes it used rather than FUTEX_WAIT in some implementations of
+ * pthreads. pthread_cond_timedwait uses an absolute timeout, which is why this
+ * can be used to reduce the number of syscalls made.
+ */
+#define	FUTEX_ABS_TIMEOUT	(FUTEX_WAIT_BITSET)
+
 #ifdef _KERNEL
 extern long lx_futex(uintptr_t addr, int cmd, int val, uintptr_t lx_timeout,
     uintptr_t addr2, int val2);
