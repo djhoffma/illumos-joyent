@@ -612,7 +612,7 @@ lx_futex(uintptr_t addr, int op, int val, uintptr_t lx_timeout,
 	int cmd = op & FUTEX_CMD_MASK;
 	int private = op & FUTEX_PRIVATE_FLAG;
 	char dmsg[32];
-	uint32_t bitmask = (uint32_t)(val3 & FUTEX_BITSET_MATCH_ANY);
+	uint32_t bitmask = (uint32_t)val3;
 
 	/* must be aligned on int boundary */
 	if (addr & 0x3)
@@ -651,16 +651,13 @@ lx_futex(uintptr_t addr, int op, int val, uintptr_t lx_timeout,
 	}
 
 	/* Copy in the timeout structure from userspace. */
-	if ((cmd & (FUTEX_WAIT | FUTEX_WAIT_BITSET)) && lx_timeout != NULL) {
+	if ((cmd == FUTEX_WAIT || cmd == FUTEX_WAIT_BITSET) && lx_timeout != NULL) {
 		/*
-		 * In a sane world, FUTEX_WAIT_BITSET with a bitset of all 1's
-		 * would be semantically equivalent to FUTEX_WAIT. Instead,
-		 * FUTEX_WAIT_BITSET is set up to use an absolute timespec
-		 * rather than a relative one. Thus the need to pass in a flag
-		 * here.
+		 * FUTEX_WAIT always has a relative timespec.
+		 * FUTEX_WAIT_BITSET always has an absolute timespec.
 		 */
 		rval = get_timeout((timespec_t *)lx_timeout, &timeout,
-		    cmd & FUTEX_ABS_TIMEOUT);
+		    cmd == FUTEX_WAIT_BITSET);
 		if (rval != 0)
 			return (set_errno(rval));
 		tptr = &timeout;
