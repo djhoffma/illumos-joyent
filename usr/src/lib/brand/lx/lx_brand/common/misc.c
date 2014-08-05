@@ -308,7 +308,7 @@ lx_personality(uintptr_t p1)
 	case LX_PER_LINUX:
 		return (0);
 	default:
-		return (-EINVAL);
+		return (0);
 	}
 }
 
