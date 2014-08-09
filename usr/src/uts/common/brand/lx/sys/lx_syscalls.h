@@ -61,6 +61,7 @@ extern long lx_sysinfo();
 extern long lx_setgroups();
 extern long lx_rt_sigqueueinfo();
 extern long lx_rt_tgsigqueueinfo();
+extern long lx_ptrace();
 
 #endif	/* _KERNEL */
 

@@ -79,6 +79,7 @@ extern "C" {
 #define	B_PTRACE_STOP_FOR_OPT	135
 #define	B_UNSUPPORTED		136
 #define	B_STORE_ARGS		137
+#define B_EXPERIMENTAL_PTRACE	138
 
 #define	B_EMULATE_SYSCALL	192
 
@@ -192,9 +193,20 @@ typedef struct lx_proc_data {
 	uint_t l_ptrace_opts;	/* process's extended ptrace options */
 	uint_t l_ptrace_event;	/* extended ptrace option trap event */
 	lx_elf_data_t l_elf_data; /* ELF data for linux executable */
-	int l_signal;		/* signal to deliver to parent when this */
+	int 	l_signal;	/* signal to deliver to parent when this */
 				/* thread group dies */
+	pid_t 	l_tracer_pid;	/* lx pid of tracer (0 is untraced) */
+	proc_t 	*l_trace_next;	/* next proc on extra waitees list that this proc is on */
+	proc_t 	*l_trace_prev;	/* prev proc on extra waitees list "" */
+
 } lx_proc_data_t;
+
+/*
+ * The extra waitees list is a list of procs that a tracer using ptrace should
+ * wait(2) on in addition to its biological children. It is a doubly linked
+ * list NULL terminated on both ends, so a single element list would have
+ * l_trace_next == l_trace_prev == NULL.
+ */
 
 #endif	/* _KERNEL */
 
@@ -241,6 +253,8 @@ typedef struct lx_lwp_data {
 	int	br_args_size; /* size in bytes of br_scall_args */
 
 	uint_t	br_ptrace;		/* ptrace is active for this LWP */
+	proc_t 	*br_trace_list;	/* first proc on the list of extra procs this */
+				/*  process must wait on due to ptrace */
 } lx_lwp_data_t;
 
 /*

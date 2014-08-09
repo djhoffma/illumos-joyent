@@ -817,6 +817,8 @@ lx_brandsys(int cmd, int64_t *rval, uintptr_t arg1, uintptr_t arg2,
 			*rval = arg2;
 			return (0);
 		}
+	case B_EXPERIMENTAL_PTRACE:
+		*rval = lx_ptrace(arg1, arg2, arg3, arg4);
 	default:
 		linux_call = cmd - B_EMULATE_SYSCALL;
 		/*
