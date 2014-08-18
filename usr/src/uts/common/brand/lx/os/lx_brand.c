@@ -819,6 +819,27 @@ lx_brandsys(int cmd, int64_t *rval, uintptr_t arg1, uintptr_t arg2,
 		}
 	case B_EXPERIMENTAL_PTRACE:
 		*rval = lx_ptrace(arg1, arg2, arg3, arg4);
+		return (0);
+	case B_EXPERIMENTAL_PBREAK:
+		*rval = lx_ptrace_breakpoint(arg1);
+		return (0);
+	case B_STORE_REGS:
+		{
+			lx_lwp_data_t *lwpd = ttolxlwp(curthread);
+			lwpd->br_regs = (void *)arg1;
+			*rval = 0;
+			return (0);
+		}
+	case B_CLEAR_REGS:
+		{
+			lx_lwp_data_t *lwpd = ttolxlwp(curthread);
+			lwpd->br_regs = NULL;
+			*rval = 0;
+			return (0);
+		}
+	case B_CHILD_PBREAK:
+		*rval = lx_ptrace_child(arg1);
+		return (0);
 	default:
 		linux_call = cmd - B_EMULATE_SYSCALL;
 		/*

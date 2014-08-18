@@ -107,6 +107,9 @@ extern void prmapout(struct as *, caddr_t, caddr_t, int);
 extern int  pr_watch_emul(struct regs *, caddr_t, enum seg_rw);
 extern void pr_free_watched_pages(proc_t *);
 extern int  pr_allstopped(proc_t *, int);
+extern void pauselwps(proc_t *);
+extern void unpauselwps(proc_t *);
+
 #if defined(__sparc)
 struct gwindows;
 extern	int	prnwindows(klwp_t *);

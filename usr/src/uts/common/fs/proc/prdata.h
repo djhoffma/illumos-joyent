@@ -378,6 +378,9 @@ extern	void	pr_free_watchpoints(proc_t *);
 extern	proc_t	*pr_cancel_watch(prnode_t *);
 extern	struct seg *break_seg(proc_t *);
 
+/* vnops exposed to the kernel for convenience */
+extern	vnode_t	*pr_lookup_procdir(vnode_t *, char *);
+
 /*
  * Machine-dependent routines (defined in prmachdep.c).
  */

@@ -1727,6 +1727,33 @@ ptrace_setoptions(pid_t pid, int options)
 	return (-ret);
 }
 
+#define __EXPERIMENTAL_PTRACE
+#ifdef __EXPERIMENTAL_PTRACE
+
+void
+lx_ptrace_stop_if_option(int option)
+{
+	syscall(SYS_brand, B_EXPERIMENTAL_PBREAK, option);
+}
+int
+lx_ptrace(uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4)
+{
+	int err;
+	int ret;
+	if (p1 == LX_PTRACE_POKEUSER || p1 == LX_PTRACE_SETREGS) {return (-EINVAL);}
+
+	if (p1 == LX_PTRACE_PEEKUSER || p1 == LX_PTRACE_PEEKDATA ||
+	    p1 == LX_PTRACE_PEEKTEXT)
+		p4 = (uintptr_t)&ret;
+
+	err = syscall(SYS_brand, B_EXPERIMENTAL_PTRACE, p1, p2, p3, p4);
+	if ((p1 == LX_PTRACE_PEEKUSER || p1 == LX_PTRACE_PEEKDATA ||
+	    p1 == LX_PTRACE_PEEKTEXT) && err >= 0)
+		return p4;
+
+	return (err == 0 ? 0 : -errno);
+}
+#else
 void
 lx_ptrace_stop_if_option(int option)
 {
@@ -1760,6 +1787,8 @@ lx_ptrace_stop_if_option(int option)
 	if (curr_opts & option)
 		(void) syscall(SYS_brand, B_PTRACE_STOP_FOR_OPT, option);
 }
+
+
 
 int
 lx_ptrace(uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4)
@@ -1831,8 +1860,9 @@ lx_ptrace(uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4)
 	default:
 		return (-EINVAL);
 	}
-}
+} 
 
+#endif
 void
 lx_ptrace_fork(void)
 {

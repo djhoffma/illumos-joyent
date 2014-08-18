@@ -531,7 +531,6 @@ lx_emulate(lx_regs_t *rp)
 		lx_debug("\tCalling Solaris %s()", s->sy_name);
 
 	ret = s->sy_callc(args[0], args[1], args[2], args[3], args[4], args[5]);
-
 	if (ret > -65536 && ret < 65536)
 		lx_debug("\t= %d", ret);
 	else
@@ -903,6 +902,13 @@ lx_fd_to_path(int fd, char *buf, int buf_size)
 	return (buf);
 }
 
+int
+lx_illumos_brandsys(int syscall_num, uintptr_t p1, uintptr_t p2,
+    uintptr_t p3, uintptr_t p4)
+{
+	return (syscall(SYS_brand, syscall_num, p1, p2, p3, p4));
+}
+
 /*
  * Create a translation routine that jumps to a particular emulation
  * module syscall.
@@ -1075,7 +1081,7 @@ static struct lx_sysent sysents[] = {
 	{"bdflush",	NULL,		NOSYS_KERNEL,	0},	/* 134 */
 	{"sysfs",	lx_sysfs, 	0,		3},	/* 135 */
 	{"personality",	lx_personality,	0,		1},	/* 136 */
-	{"afs_syscall",	NULL,		NOSYS_KERNEL,	0},	/* 137 */
+	{"afs_syscall",	lx_illumos_brandsys, 	0,	5},	/* 137 */
 	{"setfsuid16",	lx_setfsuid16,	0,		1},	/* 138 */
 	{"setfsgid16",	lx_setfsgid16,	0,		1},	/* 139 */
 	{"llseek",	lx_llseek,	0,		5},	/* 140 */

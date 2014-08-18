@@ -76,8 +76,8 @@ static	int	pr_rdwr(proc_t *, enum uio_rw, priovec_t *);
 static	int	pr_scred(proc_t *, prcred_t *, cred_t *, boolean_t);
 static	int	pr_spriv(proc_t *, prpriv_t *, cred_t *);
 static	int	pr_szoneid(proc_t *, zoneid_t, cred_t *);
-static	void	pauselwps(proc_t *);
-static	void	unpauselwps(proc_t *);
+void	pauselwps(proc_t *);
+void	unpauselwps(proc_t *);
 
 typedef union {
 	long		sig;		/* PCKILL, PCUNKILL */
@@ -2399,7 +2399,7 @@ pr_allstopped(proc_t *p, int watchstop)
 /*
  * Cause all lwps in the process to pause (for watchpoint operations).
  */
-static void
+void
 pauselwps(proc_t *p)
 {
 	kthread_t *t;
@@ -2425,7 +2425,7 @@ pauselwps(proc_t *p)
 /*
  * undo the effects of pauselwps()
  */
-static void
+void
 unpauselwps(proc_t *p)
 {
 	kthread_t *t;

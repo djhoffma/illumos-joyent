@@ -3329,11 +3329,11 @@ praccess(vnode_t *vp, int mode, int flags, cred_t *cr, caller_context_t *ct)
 /*
  * Array of lookup functions, indexed by /proc file type.
  */
-static vnode_t *pr_lookup_notdir(), *pr_lookup_procdir(), *pr_lookup_piddir(),
+static vnode_t *pr_lookup_notdir(),  *pr_lookup_piddir(),
 	*pr_lookup_objectdir(), *pr_lookup_lwpdir(), *pr_lookup_lwpiddir(),
 	*pr_lookup_fddir(), *pr_lookup_pathdir(), *pr_lookup_tmpldir(),
 	*pr_lookup_ctdir();
-
+vnode_t *pr_lookup_procdir();
 static vnode_t *(*pr_lookup_function[PR_NFILES])() = {
 	pr_lookup_procdir,	/* /proc				*/
 	pr_lookup_notdir,	/* /proc/self				*/
@@ -3487,7 +3487,7 @@ pr_lookup_notdir(vnode_t *dp, char *comp)
 /*
  * Find or construct a process vnode for the given pid.
  */
-static vnode_t *
+vnode_t *
 pr_lookup_procdir(vnode_t *dp, char *comp)
 {
 	pid_t pid;

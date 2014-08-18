@@ -471,6 +471,8 @@ extern struct pid pid0;		/* p0's pid */
 #define	P_PR_BPTADJ	0x0040	/* adjust pc on breakpoint trap */
 #define	P_PR_RUNLCL	0x0080	/* set process running on last /proc close */
 #define	P_PR_KILLCL	0x0100	/* kill process on last /proc close */
+#define	P_PR_LXPTRACE	0x0200	/* linux ptrace() compatibility mode */
+/* P_PR_PTRACE must also be enabled for full functionality */
 
 /*
  * p_flag codes

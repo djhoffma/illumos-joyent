@@ -79,7 +79,11 @@ extern "C" {
 #define	B_PTRACE_STOP_FOR_OPT	135
 #define	B_UNSUPPORTED		136
 #define	B_STORE_ARGS		137
-#define B_EXPERIMENTAL_PTRACE	138
+#define B_EXPERIMENTAL_PTRACE	138 /* call to ptrace */
+#define B_EXPERIMENTAL_PBREAK	139 /* breakpoint for ptrace */
+#define B_STORE_REGS		140 /* store userland address register struct */
+#define B_CLEAR_REGS		141 /* clear userland address register struct */
+#define B_CHILD_PBREAK		142
 
 #define	B_EMULATE_SYSCALL	192
 
@@ -255,6 +259,8 @@ typedef struct lx_lwp_data {
 	uint_t	br_ptrace;		/* ptrace is active for this LWP */
 	proc_t 	*br_trace_list;	/* first proc on the list of extra procs this */
 				/*  process must wait on due to ptrace */
+	lx_regs_t 	*br_regs; /* pointer to the argument to lx_emulate when in emulation code, NULL otherwise */
+	uintptr_t	br_debug_regs[8]; /* simulated debug registers for this thread */
 } lx_lwp_data_t;
 
 /*
@@ -287,6 +293,9 @@ extern char *lx_get_zone_kern_version(zone_t *);
 
 extern int lx_debug;
 #define	lx_print	if (lx_debug) printf
+extern struct brand lx_brand;
+extern int lx_ptrace_breakpoint(int);
+extern int lx_ptrace_child(int);
 
 #endif	/* _KERNEL */
 #endif /* _ASM */
