@@ -129,6 +129,7 @@ struct brand_ops {
 	void	(*b_exit_with_sig)(proc_t *, sigqueue_t *, void *);
 	boolean_t (*b_wait_filter)(proc_t *, proc_t *);
 	boolean_t (*b_native_exec)(uint8_t, const char **);
+	int	(*b_wait_extra)(proc_t *, int, idtype_t, id_t, int *, int *, k_siginfo_t *);
 };
 
 /*

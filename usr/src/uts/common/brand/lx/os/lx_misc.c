@@ -44,6 +44,7 @@
 #include <lx_signum.h>
 #include <lx_syscall.h>
 #include <sys/proc.h>
+#include <sys/wait.h>
 
 /* Linux specific functions and definitions */
 void lx_setrval(klwp_t *, int, int);
@@ -520,4 +521,136 @@ lx_wait_filter(proc_t *pp, proc_t *cp)
 	} else {
 		return (B_TRUE);
 	}
+}
+
+/*
+ * Gives the parent a SIGCHLD if it does not yet have one, otherwise marks it pending.
+ */
+void
+post_sigcld_target(proc_t *cp, proc_t *pp, sigqueue_t *sqp)
+{
+	ASSERT(MUTEX_HELD(&pidlock));
+	mutex_enter(&pp->p_lock);
+
+	/*
+	 * If a SIGCLD is pending, then just mark the child process
+	 * so that its SIGCLD will be posted later, when the first
+	 * SIGCLD is taken off the queue or when the parent is ready
+	 * to receive it or accept it, if ever.
+	 */
+	if (sigismember(&pp->p_sig, SIGCLD)) {
+		ptolxproc(cp)->l_ptrace_flags |= LX_CLDPEND;
+	} else {
+		ptolxproc(cp)->l_ptrace_flags &= ~LX_CLDPEND;
+		if (sqp == NULL) {
+			/* this shouldn't happen */
+			panic("never called in this case");
+		} else {
+			winfo(cp, &sqp->sq_info, 0);
+			sigaddqa(pp, NULL, sqp);
+			sqp = NULL;
+		}
+	}
+
+	mutex_exit(&pp->p_lock);
+
+	if (sqp)
+		siginfofree(sqp);
+}
+
+/*
+ * Simulates sending a SIGCHLD to the given process pp. Used to report when traced processes reach various breakpoints.
+ */
+void
+sigcld_target(proc_t *cp, proc_t *pp, sigqueue_t *sqp)
+{
+	ASSERT(MUTEX_HELD(&pidlock));
+
+	switch (cp->p_wcode) {
+	case CLD_EXITED:
+	case CLD_DUMPED:
+	case CLD_KILLED:
+		/* currently not used in the above cases, add support if necessary */
+		break;
+	case CLD_STOPPED:
+	case CLD_CONTINUED:
+		cv_broadcast(&pp->p_cv);
+		if (pp->p_flag & SJCTL) {
+			post_sigcld_target(cp, pp, sqp);
+			sqp = NULL;
+		}
+		break;
+	}
+
+	if (sqp)
+		siginfofree(sqp);
+}
+/*
+ * Posts lingering SIGCHLD's from processes being ptraced.
+ */
+void 
+sigcld_repost_extra()
+{
+	proc_t *pp = curproc;
+	proc_t *cp;
+	sigqueue_t *sqp;
+	lx_lwp_data_t *lwpd = ttolxlwp(curthread);
+
+	sqp = kmem_zalloc(sizeof (sigqueue_t), KM_SLEEP);
+	mutex_enter(&pidlock);
+	for (cp = lwpd->br_trace_list; cp; cp = ptolxproc(cp)->l_trace_next) {
+		if (ptolxproc(cp)->l_ptrace_flags & LX_CLDPEND) {
+			post_sigcld_target(cp, pp, sqp);
+			mutex_exit(&pidlock);
+			return;
+		}
+	}
+	mutex_exit(&pidlock);
+	kmem_free(sqp, sizeof (sigqueue_t));
+}
+/*
+ * Waits on extra processes as necessary to implement ptrace. This is used to
+ * eliminate monitor processes. This is called in waitid. Be sure to update
+ * found and proc_gone as appropriate.
+ */
+int
+lx_wait_extra(proc_t *pp, int options, idtype_t idtype, id_t id, int *found, int *proc_gone,
+    k_siginfo_t *ip)
+{
+	lx_lwp_data_t *lwpd = ttolxlwp(curthread);
+	proc_t *cp = lwpd->br_trace_list;
+	int waitflag = !(options & WNOWAIT);
+
+	while (cp != NULL) {
+		if (idtype == P_PID && id != cp->p_pid)
+			continue;
+		if (idtype == P_PGID && id != cp->p_pgrp)
+			continue;
+		
+		switch (cp->p_wcode) {
+			/*
+			 * Linux always waits on ptraced chilren regardless of
+			 * the WSTOPPED option 
+			 */
+		case CLD_STOPPED:
+			/* Is it still stopped? */
+			mutex_enter(&cp->p_lock);
+			if (!jobstopped(cp)) {
+				mutex_exit(&cp->p_lock);
+				break;
+			}
+			/* fall through */
+		case CLD_TRAPPED:
+			winfo(cp, ip, waitflag);
+			mutex_exit(&pidlock);
+			if (waitflag) {		/* accept SIGCLD */
+				sigcld_delete(ip);
+				sigcld_repost_extra();
+			}
+			return (0);
+		}
+		++(*found);
+		cp = ptolxproc(cp)->l_trace_next;
+	}
+	return (-1);
 }

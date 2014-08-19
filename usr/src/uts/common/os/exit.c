@@ -1169,6 +1169,19 @@ waitid(idtype_t idtype, id_t id, k_siginfo_t *ip, int options)
 			if (idtype == P_PID)
 				break;
 		}
+		
+		/*
+		 * Wait on extra proceses as necessary for the brand. This
+		 * might find processes, or report processes as being already
+		 * gone.
+		 */
+		if (PROC_IS_BRANDED(pp) &&
+		    BROP(pp)->b_wait_extra) {
+			if (BROP(pp)->b_wait_extra(pp, options, idtype,
+			    id, &found, &proc_gone, ip) == 0)
+				return (0);
+		}
+
 
 		/*
 		 * If we found no interesting processes at all,

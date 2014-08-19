@@ -175,6 +175,9 @@ extern int lx_check_alloca(size_t);
 
 extern int ltos_at_flag(int lflag, int allow, boolean_t enforce);
 
+
+
+
 /*
  * NO_UUCOPY disables calls to the uucopy* system calls to help with
  * debugging brand library accesses to linux application memory.

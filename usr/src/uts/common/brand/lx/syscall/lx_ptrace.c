@@ -27,6 +27,8 @@
 #include <sys/brand.h>
 #include <fs/proc/prdata.h>
 #include <lx_syscall.h>
+#include <sys/panic.h>
+#include <sys/cmn_err.h>
 /*
  * This is the completely in kernel implementation of ptrace for lx brands. It
  * will present a few interfaces that others may use:
@@ -172,6 +174,7 @@ ptrace_traceme(void)
 
 	ASSERT(ttolxlwp(curthread)->br_ppid != 0);
 	lxpd->l_tracer_pid = lwpd->br_ppid;
+	lxpd->l_tracer_proc = pp;
 	p->p_proc_flag |= P_PR_TRACE;
 	p->p_proc_flag |= P_PR_PTRACE;
 	p->p_proc_flag |= P_PR_LXPTRACE;
@@ -238,9 +241,11 @@ ptrace_attach(pid_t pid, pid_t s_pid, id_t s_tid)
 	/* if acquiring a child of ours, easy */
 	if (cp->p_parent == pp) {
 		lxpd->l_tracer_pid = lxlwpd->br_pid;
+		lxpd->l_tracer_proc = pp;
 	} else {
 	/* Acquiring something not our child requires more bookkeeping. */
 		lxpd->l_tracer_pid = lxlwpd->br_pid;
+		lxpd->l_tracer_proc = pp;
 		/* Add to our trace list at the beginning if it exists, otherwise make the list. */
 		if (lxlwpd->br_trace_list != NULL) {
 			proc_t *head = lxlwpd->br_trace_list;
@@ -377,7 +382,40 @@ ptrace_poke(pid_t s_pid, long addr, void *data)
 	
 	return (0);
 }
+static int
+get_proc_prnode(proc_t *p, prnode_t **outp)
+{
+	
+	mutex_enter(&p->p_lock);
+	if (p->p_trace != NULL) {
+		*outp = VTOP(p->p_trace);
+		mutex_exit(&p->p_lock);
+	} else {
+		vnode_t *procroot, *procdir;
+		int err, i;
+		pid_t pid = p->p_pid;
+		char pidbuf[11]; /* assumes no more than 10 digits of process ids */
 
+		mutex_exit(&p->p_lock);
+		/* XXX: use BCD conversion algorithm to make this faster */
+		pidbuf[10] = '\0';
+		for (i = 9; i >= 0; --i) {
+			pidbuf[i] = (pid % 10) + '0';
+			pid /= 10;
+		}
+
+		if ((err = vn_openat("/proc", UIO_SYSSPACE, FREAD, 0,
+		    &procroot, 0, 0, NULL, -1)) != 0) {
+			return (err);
+		}
+		procdir = pr_lookup_procdir(procroot, pidbuf);
+		if (procdir == NULL)
+			return (EPERM);
+		*outp = VTOP(procdir);
+	}
+
+	return (0);
+}
 static long
 ptrace_cont(pid_t pid, pid_t s_pid, id_t s_tid, int data, boolean_t step)
 {
@@ -386,6 +424,7 @@ ptrace_cont(pid_t pid, pid_t s_pid, id_t s_tid, int data, boolean_t step)
 	klwp_t *lwp;
 	int sig = ltos_signo[data];
 	int err;
+	prnode_t *pnp;
 
 	if ((err = acquire_and_validate_proc(pid, &p)) != 0)
 		return (set_errno(err));
@@ -510,27 +549,18 @@ ptrace_cont(pid_t pid, pid_t s_pid, id_t s_tid, int data, boolean_t step)
 			lwp->lwp_curinfo = NULL;
 		}
 	}
-
-	if (step == B_TRUE) {
-		mutex_exit(&p->p_lock);
-		prstep(lwp, 0);
-		mutex_enter(&p->p_lock);
-	}
-
-	/* now have to emulate the effects of PCRUN */
-	thread_lock(t);
-	if ((!ISTOPPED(t) && !VSTOPPED(t) &&
-	    !(t->t_proc_flag & TP_PRSTOP)) ||
-	    (p->p_agenttp != NULL &&
-	    (t != p->p_agenttp))) {
-		thread_unlock(t);
-		mutex_exit(&p->p_lock);
-		return (set_errno(EBUSY));
-	}
-
-	thread_unlock(t);
-	allsetrun(p);
 	mutex_exit(&p->p_lock);
+
+	if ((err = get_proc_prnode(p, &pnp)) != 0)
+		return (set_errno(err));
+
+	mutex_enter(&p->p_lock);
+	if ((err = pr_setrun(pnp, (step == B_TRUE) ? PRSTEP : 0)) != 0) {
+		mutex_exit(&p->p_lock);
+		return (set_errno(err));
+	}
+	mutex_exit(&p->p_lock);
+
 	return (0);
 }
 
@@ -832,37 +862,7 @@ ptrace_peek_user(pid_t s_pid, id_t s_tid, int off, int *dst)
 
 }
 
-int
-get_proc_prnode(proc_t *p, prnode_t **outp)
-{
-	
-	mutex_enter(&p->p_lock);
-	if (p->p_trace != NULL) {
-		*outp = VTOP(p->p_trace);
-	} else {
-		vnode_t *procroot, *procdir;
-		int err, i;
-		pid_t pid = p->p_pid;
-		char pidbuf[11]; /* assumes no more than 10 digits of process ids */
-		/* XXX: use BCD conversion algorithm to make this faster */
-		pidbuf[10] = '\0';
-		for (i = 9; i >= 0; --i) {
-			pidbuf[i] = (pid % 10) + '0';
-			pid /= 10;
-		}
 
-		if ((err = vn_openat("/proc", UIO_SYSSPACE, FREAD, 0,
-		    &procroot, 0, 0, NULL, -1)) != 0) {
-			return (err);
-		}
-		procdir = pr_lookup_procdir(procroot, pidbuf);
-		if (procdir == NULL)
-			return (EPERM);
-	}
-
-	mutex_exit(&p->p_lock);
-	return (0);
-}
 
 int
 setup_watchpoints(proc_t *p)
@@ -1186,6 +1186,7 @@ lx_ptrace_breakpoint(int event)
 	proc_t *p = curproc;
 	lx_proc_data_t *lxpd = ptolxproc(p);
 	sigqueue_t *sqp;
+	proc_t *pp = lxpd->l_tracer_proc;
 
 	if (event & lxpd->l_ptrace_opts) {
 		if (ptrace_event_to_marker(event, &lxpd->l_ptrace_event) != B_TRUE)
@@ -1204,7 +1205,7 @@ lx_ptrace_breakpoint(int event)
 		p->p_wdata = SIGTRAP;
 		/* CLD_STOPPED is used here to get around the assert in sigcld */
 		p->p_wcode = CLD_STOPPED;
-		sigcld(p, sqp);
+		sigcld_target(p, pp, sqp);
 		mutex_exit(&pidlock);
 
 		/* this is what we actually want */
@@ -1213,54 +1214,90 @@ lx_ptrace_breakpoint(int event)
 	return (0);
 }
 
+/*
+ * This is where all of forking ptrace flags gets handled. Ptrace flags are
+ * only forked when the correct event is set by the parent. In the case where
+ * it is set, then the child inherits all of the ptrace information from the
+ * parent, and stops with SIGSTOP.
+ */
 int
 lx_ptrace_child(int event)
 {
 	proc_t *p = curproc;
 	lx_proc_data_t *lxpd = ptolxproc(p);
 	sigqueue_t *sqp;
+	proc_t *pp;
+	pid_t s_pid;
+	id_t s_tid;
+	int err;
+	kthread_t *t;
+
+	if ((err = lx_lwp_ppid(curthread->t_lwp, &s_pid, &s_tid)) < 0)
+		return (set_errno(EINVAL));
+
+	
+	pp = prfind(s_pid);	
+	if (pp == NULL)
+		return (set_errno(EINVAL));
+
+	t = idtot(pp, s_tid);
+	if (t == NULL)
+		return (set_errno(EINVAL));
 
 
-	if (event & lxpd->l_ptrace_opts) {
-		/* Track the event as the reason for stopping */
-		switch (event) {
-			case LX_PTRACE_O_TRACEFORK:
-				lpdp->l_ptrace_event = LX_PTRACE_EVENT_FORK;
-				break;
-			case LX_PTRACE_O_TRACEVFORK:
-				lpdp->l_ptrace_event = LX_PTRACE_EVENT_VFORK;
-				break;
-			case LX_PTRACE_O_TRACECLONE:
-				lpdp->l_ptrace_event = LX_PTRACE_EVENT_CLONE;
-				break;
-			case LX_PTRACE_O_TRACEEXEC:
-				lpdp->l_ptrace_event = LX_PTRACE_EVENT_EXEC;
-				break;
-			case LX_PTRACE_O_TRACEVFORKDONE:
-				lpdp->l_ptrace_event = LX_PTRACE_EVENT_VFORK_DONE;
-				break;
-			case LX_PTRACE_O_TRACEEXIT:
-				lpdp->l_ptrace_event = LX_PTRACE_EVENT_EXIT;
-				break;
-			case LX_PTRACE_O_TRACESECCOMP:
-				lpdp->l_ptrace_event = LX_PTRACE_EVENT_SECCOMP;
-				break;
+	if (event & ptolxproc(pp)->l_ptrace_opts) {
+		lx_proc_data_t *lxppd = ptolxproc(pp);
+		lx_lwp_data_t *lwppd = ttolxlwp(t);
+		lx_lwp_data_t *lwpd = ttolxlwp(curthread);
+
+		/* 
+		 * copy over ptrace information, essentially attaching the
+		 * current proc to the tracer of its parent. 
+		 */
+		lxpd->l_ptrace_opts = lxppd->l_ptrace_opts;
+		lxpd->l_tracer_pid = lxppd->l_tracer_pid;
+		lxpd->l_tracer_proc = lxppd->l_tracer_proc;
+		lwpd->br_ptrace = lwppd->br_ptrace;
+		bcopy(lwppd->br_debug_regs, lwpd->br_debug_regs, sizeof(uintptr_t) * 8);		
+		/* 
+		 * add ourselves to the list of extra children to wait on if
+		 * not a direct descendant of tracer 
+		 */
+		if (pp != lxpd->l_tracer_proc) {
+			/* Add to our trace list at the beginning if it exists, otherwise make the list. */
+			if (lwppd->br_trace_list != NULL) {
+				proc_t *head = lwppd->br_trace_list;
+				lx_proc_data_t *lxhead;
+
+				mutex_enter(&head->p_lock);
+				lxhead = ptolxproc(head);
+				ASSERT(lxhead->l_trace_prev == NULL);
+				lxhead->l_trace_prev = p;
+				lxpd->l_trace_next = head;
+				lwppd->br_trace_list = p;
+				mutex_exit(&head->p_lock);
+			} else {
+				lwppd->br_trace_list = p;
+			}
 		}
 
-
-		psignal(p, SIGSTOP);
 		/*
-		 * Since we're stopping, we need to post the SIGCHLD to the parent.
-		 * The code in sigcld expects the following two process values to be
-		 * setup specifically before it can send the signal, so do that here.
+		 * children stop and send a sigchld back to their tracer, which
+		 * has been set by the point this is called.
 		 */
+		psignal(p, SIGSTOP);
+
 		sqp = kmem_zalloc(sizeof (sigqueue_t), KM_SLEEP);
 		mutex_enter(&pidlock);
-		p->p_wdata = SIGSTOP;
+		p->p_wdata = SIGTRAP;
 		/* CLD_STOPPED is used here to get around the assert in sigcld */
 		p->p_wcode = CLD_STOPPED;
-		sigcld(p, sqp);
+		sigcld_target(p, pp, sqp);
 		mutex_exit(&pidlock);
+
+		/* this is what we actually want */
+		p->p_wcode = CLD_TRAPPED;
+
 	}
 	return (0);
 }

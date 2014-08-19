@@ -1727,7 +1727,6 @@ ptrace_setoptions(pid_t pid, int options)
 	return (-ret);
 }
 
-#define __EXPERIMENTAL_PTRACE
 #ifdef __EXPERIMENTAL_PTRACE
 
 void

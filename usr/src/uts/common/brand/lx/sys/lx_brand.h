@@ -200,9 +200,10 @@ typedef struct lx_proc_data {
 	int 	l_signal;	/* signal to deliver to parent when this */
 				/* thread group dies */
 	pid_t 	l_tracer_pid;	/* lx pid of tracer (0 is untraced) */
+	proc_t	*l_tracer_proc;	/* proc structure of tracer */
 	proc_t 	*l_trace_next;	/* next proc on extra waitees list that this proc is on */
 	proc_t 	*l_trace_prev;	/* prev proc on extra waitees list "" */
-
+	int	l_ptrace_flags; /* some random flags used to support ptrace, including whether there is a SIGCLD pending */
 } lx_proc_data_t;
 
 /*
@@ -211,6 +212,7 @@ typedef struct lx_proc_data {
  * list NULL terminated on both ends, so a single element list would have
  * l_trace_next == l_trace_prev == NULL.
  */
+#define	LX_CLDPEND	(1)
 
 #endif	/* _KERNEL */
 
@@ -296,7 +298,9 @@ extern int lx_debug;
 extern struct brand lx_brand;
 extern int lx_ptrace_breakpoint(int);
 extern int lx_ptrace_child(int);
-
+extern void post_sigcld_target(proc_t *, proc_t *, sigqueue_t *);
+extern void sigcld_target(proc_t *, proc_t *, sigqueue_t *);
+extern void sigcld_repost_extra(void);
 #endif	/* _KERNEL */
 #endif /* _ASM */
 

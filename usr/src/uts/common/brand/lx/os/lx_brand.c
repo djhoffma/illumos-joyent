@@ -83,6 +83,7 @@ extern void lx_exit_with_sig(proc_t *, sigqueue_t *, void *);
 extern boolean_t lx_wait_filter(proc_t *, proc_t *);
 extern greg_t lx_fixsegreg(greg_t, model_t);
 extern int lx_sched_affinity(int, uintptr_t, int, uintptr_t, int64_t *);
+extern int lx_wait_extra(proc_t *, int, idtype_t, id_t, int *, int *, k_siginfo_t *);
 
 int lx_systrace_brand_enabled;
 
@@ -119,7 +120,8 @@ struct brand_ops lx_brops = {
 	NSIG,
 	lx_exit_with_sig,
 	lx_wait_filter,
-	lx_native_exec
+	lx_native_exec,
+	lx_wait_extra,
 };
 
 struct brand_mach_ops lx_mops = {
