@@ -1169,7 +1169,7 @@ waitid(idtype_t idtype, id_t id, k_siginfo_t *ip, int options)
 			if (idtype == P_PID)
 				break;
 		}
-		
+
 		/*
 		 * Wait on extra proceses as necessary for the brand. This
 		 * might find processes, or report processes as being already

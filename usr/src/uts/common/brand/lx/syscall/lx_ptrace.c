@@ -1235,14 +1235,18 @@ lx_ptrace_child(int event)
 	if ((err = lx_lwp_ppid(curthread->t_lwp, &s_pid, &s_tid)) < 0)
 		return (set_errno(EINVAL));
 
-	
+	mutex_enter(&pidlock);	
 	pp = prfind(s_pid);	
+	mutex_exit(&pidlock);
 	if (pp == NULL)
 		return (set_errno(EINVAL));
 
+	mutex_enter(&pp->p_lock);
 	t = idtot(pp, s_tid);
-	if (t == NULL)
+	if (t == NULL) {
+		mutex_exit(&pp->p_lock);
 		return (set_errno(EINVAL));
+	}
 
 
 	if (event & ptolxproc(pp)->l_ptrace_opts) {
@@ -1254,6 +1258,7 @@ lx_ptrace_child(int event)
 		 * copy over ptrace information, essentially attaching the
 		 * current proc to the tracer of its parent. 
 		 */
+		mutex_enter(&p->p_lock);
 		lxpd->l_ptrace_opts = lxppd->l_ptrace_opts;
 		lxpd->l_tracer_pid = lxppd->l_tracer_pid;
 		lxpd->l_tracer_proc = lxppd->l_tracer_proc;
@@ -1285,6 +1290,8 @@ lx_ptrace_child(int event)
 		 * children stop and send a sigchld back to their tracer, which
 		 * has been set by the point this is called.
 		 */
+		mutex_exit(&p->p_lock);
+		mutex_exit(&pp->p_lock);
 		psignal(p, SIGSTOP);
 
 		sqp = kmem_zalloc(sizeof (sigqueue_t), KM_SLEEP);

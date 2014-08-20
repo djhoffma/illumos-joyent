@@ -865,7 +865,10 @@ gexec(
 			sigqueue_t *sqp;
 			sqp = kmem_zalloc(sizeof (sigqueue_t), KM_SLEEP);
 			pp->p_wdata = SIGTRAP;
-			/* CLD_STOPPED is used here to get around the assert in sigcld */
+			/* 
+			 * CLD_STOPPED is used here to get around the assert in
+			 * sigcld 
+			 */
 			pp->p_wcode = CLD_STOPPED;
 			mutex_enter(&pidlock);
 			sigcld(pp, sqp);
