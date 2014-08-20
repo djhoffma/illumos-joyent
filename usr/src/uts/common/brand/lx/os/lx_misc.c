@@ -575,10 +575,8 @@ sigcld_target(proc_t *cp, proc_t *pp, sigqueue_t *sqp)
 	case CLD_STOPPED:
 	case CLD_CONTINUED:
 		cv_broadcast(&pp->p_cv);
-		if (pp->p_flag & SJCTL) {
-			post_sigcld_target(cp, pp, sqp);
-			sqp = NULL;
-		}
+		post_sigcld_target(cp, pp, sqp);
+		sqp = NULL;
 		break;
 	}
 

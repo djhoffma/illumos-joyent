@@ -283,6 +283,8 @@ ptrace_attach(pid_t pid, pid_t s_pid, id_t s_tid)
 end:
 	mutex_exit(&pp->p_lock);
 	mutex_exit(&cp->p_lock);
+	if (err == 0)
+		psignal(cp, SIGSTOP);
 	return (err == 0 ? 0 : set_errno(err));
 
 }
@@ -1233,19 +1235,22 @@ lx_ptrace_child(int event)
 	kthread_t *t;
 
 	if ((err = lx_lwp_ppid(curthread->t_lwp, &s_pid, &s_tid)) < 0)
-		return (set_errno(EINVAL));
+		return (set_errno(ESRCH));
+
+	if ((err = lx_lpid_to_spair(err, &s_pid, &s_tid)) < 0)
+		return (set_errno(ESRCH));
 
 	mutex_enter(&pidlock);	
 	pp = prfind(s_pid);	
 	mutex_exit(&pidlock);
 	if (pp == NULL)
-		return (set_errno(EINVAL));
+		return (set_errno(ESRCH));
 
 	mutex_enter(&pp->p_lock);
 	t = idtot(pp, s_tid);
 	if (t == NULL) {
 		mutex_exit(&pp->p_lock);
-		return (set_errno(EINVAL));
+		return (set_errno(ESRCH));
 	}
 
 
@@ -1291,6 +1296,7 @@ lx_ptrace_child(int event)
 		 * has been set by the point this is called.
 		 */
 		mutex_exit(&p->p_lock);
+		pp->p_flag |= SJCTL;
 		mutex_exit(&pp->p_lock);
 		psignal(p, SIGSTOP);
 
@@ -1299,12 +1305,15 @@ lx_ptrace_child(int event)
 		p->p_wdata = SIGTRAP;
 		/* CLD_STOPPED is used here to get around the assert in sigcld */
 		p->p_wcode = CLD_STOPPED;
+		
 		sigcld_target(p, pp, sqp);
 		mutex_exit(&pidlock);
 
 		/* this is what we actually want */
 		p->p_wcode = CLD_TRAPPED;
 
+	} else {
+		mutex_exit(&pp->p_lock);
 	}
 	return (0);
 }

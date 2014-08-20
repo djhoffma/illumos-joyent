@@ -1094,6 +1094,7 @@ stop(int why, int what)
 				p->p_wdata = (why == PR_SIGNALLED)?
 				    what : SIGTRAP;
 				cv_broadcast(&p->p_parent->p_cv);
+				psignal(p->p_parent, SIGCHLD);
 				/*
 				 * Grab p->p_lock before releasing pidlock so
 				 * parent and child don't have a race condition.
