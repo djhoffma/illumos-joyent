@@ -279,12 +279,12 @@ static lxpr_dirent_t sysdir[] = {
  * contents of /proc/sys/kernel directory
  */
 static lxpr_dirent_t sys_kerneldir[] = {
+	{ LXPR_SYS_KERNEL_HOSTNAME, 	"hostname" },
 	{ LXPR_SYS_KERNEL_MSGMNI,	"msgmni" },
 	{ LXPR_SYS_KERNEL_NGROUPS_MAX,	"ngroups_max" },
+	{ LXPR_SYS_KERNEL_PID_MAX, 	"pid_max" },
 	{ LXPR_SYS_KERNEL_SHMMAX,	"shmmax" },
 	{ LXPR_SYS_KERNEL_THREADS_MAX,	"threads-max" },
-	{ LXPR_SYS_KERNEL_HOSTNAME, 	"hostname" },
-	{ LXPR_SYS_KERNEL_PID_MAX, 	"pid_max" },
 };
 
 #define	SYS_KERNELDIRFILES (sizeof (sys_kerneldir) / sizeof (sys_kerneldir[0]))
