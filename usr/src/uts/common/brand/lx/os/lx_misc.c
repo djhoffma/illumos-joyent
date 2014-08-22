@@ -135,6 +135,25 @@ lx_exitlwp(klwp_t *lwp)
 		    NULL, NULL, 0);
 	}
 
+	/* TODO: detach from all processes being ptraced */
+	{
+		ASSERT(MUTEX_HELD(&curproc->p_lock));
+		proc_t *tp = lwpd->br_trace_list;
+		while (tp != NULL) {
+			proc_t tnext;
+			lx_proc_data_t lxrtp = ptolxproc(tp);
+			
+			mutex_enter(tp->p_lock);
+			ASSERT(lxrtp->l_trace_prev = NULL);
+			tnext = ptolxproc(tp)->l_trace_next;
+			/* nothing we can do here if an error */
+			(void)ptrace_proc_cont_and_deliver_signal(tp, ); 
+			mutex_exit(&tp->p_lock);
+
+			tp = tnext;
+		}
+	}
+
 	if (lwpd->br_signal != 0) {
 		/*
 		 * The first thread in a process doesn't cause a signal to
@@ -530,7 +549,7 @@ void
 post_sigcld_target(proc_t *cp, proc_t *pp, sigqueue_t *sqp)
 {
 	ASSERT(MUTEX_HELD(&pidlock));
-	mutex_enter(&pp->p_lock);
+	ASSERT(MUTEX_HELD(&pp->p_lock));
 
 	/*
 	 * If a SIGCLD is pending, then just mark the child process
@@ -551,8 +570,6 @@ post_sigcld_target(proc_t *cp, proc_t *pp, sigqueue_t *sqp)
 			sqp = NULL;
 		}
 	}
-
-	mutex_exit(&pp->p_lock);
 
 	if (sqp)
 		siginfofree(sqp);

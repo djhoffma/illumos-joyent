@@ -418,20 +418,14 @@ get_proc_prnode(proc_t *p, prnode_t **outp)
 
 	return (0);
 }
-static long
-ptrace_cont(pid_t pid, pid_t s_pid, id_t s_tid, int data, boolean_t step)
-{
-	proc_t *p;
-	kthread_t *t;
-	klwp_t *lwp;
-	int sig = ltos_signo[data];
-	int err;
-	prnode_t *pnp;
 
-	if ((err = acquire_and_validate_proc(pid, &p)) != 0)
-		return (set_errno(err));
-	if ((err = acquire_and_validate_lwp(p, s_tid, &t)) != 0)
-		return (set_errno(err));
+long
+ptrace_proc_cont_and_deliver_signal(proc_t *p, kthread_t *t, int sig, boolean_t step,
+    boolean_t detach)
+{
+	int err;
+	klwp_t *lwp;
+	prnode_t *pnp;
 
 	if (sig < 0 || sig >= LX_NSIG)
 		return (set_errno(EINVAL));
@@ -563,7 +557,40 @@ ptrace_cont(pid_t pid, pid_t s_pid, id_t s_tid, int data, boolean_t step)
 	}
 	mutex_exit(&p->p_lock);
 
-	return (0);
+
+}
+
+static long
+ptrace_cont(pid_t pid, pid_t s_pid, id_t s_tid, int data, boolean_t step)
+{
+	proc_t *p;
+	kthread_t *t;
+	int sig = ltos_signo[data];
+	int err;
+
+	if ((err = acquire_and_validate_proc(pid, &p)) != 0)
+		return (set_errno(err));
+	if ((err = acquire_and_validate_lwp(p, s_tid, &t)) != 0)
+		return (set_errno(err));
+
+	return (ptrace_proc_cont_and_deliver_signal(p, t, sig, step, B_FALSE));
+}
+
+static long
+ptrace_detach(pid_t pid, pid_t s_pid, id_t s_tid, int data)
+{
+	proc_t *p;
+	kthread_t *t;
+	int sig = ltos_signo[data];
+	int err;
+
+	if ((err = acquire_and_validate_proc(pid, &p)) != 0)
+		return (set_errno(err));
+	if ((err = acquire_and_validate_lwp(p, s_tid, &t)) != 0)
+		return (set_errno(err));
+
+	return (ptrace_proc_cont_and_deliver_signal(p, t, sig, B_FALSE, B_TRUE));
+
 }
 
 static long
@@ -1188,30 +1215,53 @@ lx_ptrace_breakpoint(int event)
 	proc_t *p = curproc;
 	lx_proc_data_t *lxpd = ptolxproc(p);
 	sigqueue_t *sqp;
-	proc_t *pp = lxpd->l_tracer_proc;
+	proc_t *pp;
+       
+	sqp = kmem_zalloc(sizeof (sigqueue_t), KM_SLEEP);
+	mutex_enter(&pidlock);
+	mutex_enter(&p->p_lock);
+	pp = lxpd->l_tracer_proc;
+	if (pp == NULL) {
+		mutex_exit(&pidlock);
+		mutex_exit(&p->p_lock);
+		kmem_free(sqp, sizeof (sigqueue_t));
+		return (0);
+	}	
+	mutex_enter(&pp->p_lock);
 
-	if (event & lxpd->l_ptrace_opts) {
-		if (ptrace_event_to_marker(event, &lxpd->l_ptrace_event) != B_TRUE)
+	if (ttolxlwp(curthread)->br_ptrace == 1 && (event & lxpd->l_ptrace_opts)) {
+		ASSERT(pp != NULL); /* if being traced we should have a tracer */
+		if (ptrace_event_to_marker(event, &lxpd->l_ptrace_event) != B_TRUE) {
+			mutex_exit(&p->p_lock);
+			mutex_exit(&pp->p_lock);
+			mutex_exit(&pidlock);
+			kmem_free(sqp, sizeof (sigqueue_t));
 			return (set_errno(EINVAL));
+		}
 
 		/* XXX: figure out if we need to actually signal ourselves, or just stop somehow */
-		psignal(p, SIGTRAP);
+		sigtoproc(p, NULL, SIGTRAP);
 
 		/*
 		 * Since we're stopping, we need to post the SIGCHLD to the parent.
 		 * The code in sigcld expects the following two process values to be
 		 * setup specifically before it can send the signal, so do that here.
 		 */
-		sqp = kmem_zalloc(sizeof (sigqueue_t), KM_SLEEP);
-		mutex_enter(&pidlock);
 		p->p_wdata = SIGTRAP;
 		/* CLD_STOPPED is used here to get around the assert in sigcld */
 		p->p_wcode = CLD_STOPPED;
 		sigcld_target(p, pp, sqp);
+		mutex_exit(&pp->p_lock);
+		mutex_exit(&p->p_lock);
 		mutex_exit(&pidlock);
 
 		/* this is what we actually want */
 		p->p_wcode = CLD_TRAPPED;
+	} else {
+		mutex_exit(&p->p_lock);
+		mutex_exit(&pp->p_lock);
+		mutex_exit(&pidlock);
+		kmem_free(sqp, sizeof (sigqueue_t));
 	}
 	return (0);
 }
@@ -1240,16 +1290,22 @@ lx_ptrace_child(int event)
 	if ((err = lx_lpid_to_spair(err, &s_pid, &s_tid)) < 0)
 		return (set_errno(ESRCH));
 
+	sqp = kmem_zalloc(sizeof (sigqueue_t), KM_SLEEP);
 	mutex_enter(&pidlock);	
 	pp = prfind(s_pid);	
-	mutex_exit(&pidlock);
-	if (pp == NULL)
+	if (pp == NULL) {
+		mutex_exit(&pidlock);
+		kmem_free(sqp, sizeof (sigqueue_t));
 		return (set_errno(ESRCH));
+	}
 
+	/* doing this now when we don't have locks */
 	mutex_enter(&pp->p_lock);
 	t = idtot(pp, s_tid);
 	if (t == NULL) {
 		mutex_exit(&pp->p_lock);
+		mutex_exit(&pidlock);
+		kmem_free(sqp, sizeof (sigqueue_t));
 		return (set_errno(ESRCH));
 	}
 
@@ -1279,13 +1335,15 @@ lx_ptrace_child(int event)
 				proc_t *head = lwppd->br_trace_list;
 				lx_proc_data_t *lxhead;
 
-				mutex_enter(&head->p_lock);
+				if (head != pp && head != p)
+					mutex_enter(&head->p_lock);
 				lxhead = ptolxproc(head);
 				ASSERT(lxhead->l_trace_prev == NULL);
 				lxhead->l_trace_prev = p;
 				lxpd->l_trace_next = head;
 				lwppd->br_trace_list = p;
-				mutex_exit(&head->p_lock);
+				if (head != pp && head != p)
+					mutex_exit(&head->p_lock);
 			} else {
 				lwppd->br_trace_list = p;
 			}
@@ -1295,18 +1353,16 @@ lx_ptrace_child(int event)
 		 * children stop and send a sigchld back to their tracer, which
 		 * has been set by the point this is called.
 		 */
-		mutex_exit(&p->p_lock);
 		pp->p_flag |= SJCTL;
-		mutex_exit(&pp->p_lock);
-		psignal(p, SIGSTOP);
+		sigtoproc(p, NULL, SIGSTOP);
 
-		sqp = kmem_zalloc(sizeof (sigqueue_t), KM_SLEEP);
-		mutex_enter(&pidlock);
 		p->p_wdata = SIGTRAP;
 		/* CLD_STOPPED is used here to get around the assert in sigcld */
 		p->p_wcode = CLD_STOPPED;
 		
 		sigcld_target(p, pp, sqp);
+		mutex_exit(&p->p_lock);
+		mutex_exit(&pp->p_lock);
 		mutex_exit(&pidlock);
 
 		/* this is what we actually want */
@@ -1314,6 +1370,8 @@ lx_ptrace_child(int event)
 
 	} else {
 		mutex_exit(&pp->p_lock);
+		mutex_exit(&pidlock);
+		kmem_free(sqp, sizeof (sigqueue_t));
 	}
 	return (0);
 }

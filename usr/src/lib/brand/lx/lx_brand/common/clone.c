@@ -452,8 +452,10 @@ lx_clone(uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4,
 		}
 
 		/* Parent just returns */
-		if (rval != 0)
+		if (rval != 0) {
+		/*	lx_ptrace_stop_if_option(LX_PTRACE_O_TRACEFORK);*/
 			return ((rval < 0) ? -errno : rval);
+		}
 
 
 		/*
@@ -470,7 +472,7 @@ lx_clone(uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4,
 		 * lx_setup_clone() doesn't return below, so stop now, if
 		 * necessary.
 		 */
-		/*syscall(SYS_brand, B_CHILD_PBREAK, LX_PTRACE_O_TRACEFORK); */
+		/*syscall(SYS_brand, B_CHILD_PBREAK, LX_PTRACE_O_TRACEFORK);*/
 
 		/*
 		 * If provided, the child needs its new stack set up.
